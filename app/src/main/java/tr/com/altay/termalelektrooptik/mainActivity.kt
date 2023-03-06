@@ -4,6 +4,7 @@ import android.Manifest
 import android.Manifest.permission.READ_EXTERNAL_STORAGE
 import android.Manifest.permission.WRITE_EXTERNAL_STORAGE
 import android.app.Activity
+import android.app.Instrumentation.ActivityResult
 import android.content.ContentValues
 import android.content.Context
 import android.content.ContextWrapper
@@ -27,7 +28,9 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
+import dev.bmcreations.scrcast.ScrCast
 import tr.com.altay.termalelektrooptik.databinding.ActivityMainBinding
 import tr.com.altay.termalelektrooptik.databinding.ContentMainBinding
 import tr.com.altay.termalelektrooptik.databinding.FragmentFirstBinding
@@ -36,6 +39,13 @@ import java.io.FileOutputStream
 import java.io.OutputStream
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import dev.bmcreations.scrcast.config.NotificationConfig
+
+import dev.bmcreations.scrcast.config.StorageConfig
+
+import dev.bmcreations.scrcast.config.VideoConfig
+
+
 
 
 class mainActivity : AppCompatActivity() {
@@ -51,6 +61,7 @@ class mainActivity : AppCompatActivity() {
     private lateinit var displayMetrics: DisplayMetrics
     private lateinit var mediaRecorder: MediaRecorder
 
+    private lateinit var recorder: ScrCast
     private var isStoragePermissionGranted = false
     private var isCameraPermissionGranted = false
     private var isAudioPermissionGranted = false
@@ -58,9 +69,30 @@ class mainActivity : AppCompatActivity() {
 
     private var isStarted = false
 
+
     override fun onCreate(savedInstanceState: Bundle?) {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         super.onCreate(savedInstanceState)
+
+
+        this.recorder = ScrCast.use(this)
+
+        recorder.apply {
+            // configure options via DSL
+            options {
+                video {
+                    maxLengthSecs = 360
+                }
+                storage {
+                    directoryName = "${externalCacheDir?.absolutePath}/${getFileName()}.3gp"
+                }
+
+                moveTaskToBack = false
+                startDelayMs = 5_000
+            }
+        }
+
+
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -95,11 +127,11 @@ class mainActivity : AppCompatActivity() {
             requestPermission()
 
             if(isStoragePermissionGranted && isAudioPermissionGranted && isCameraPermissionGranted){
-                /*when(isStarted){
+                when(isStarted){
                     true -> stopProjection()
                     false -> startProjection()
-                }*/
-                startProjection()
+                }
+               // startProjection()
             }else{
                 Log.v("Error","setOnClickListener_SDK_INT < S")
                 requestPermission()
@@ -219,46 +251,16 @@ class mainActivity : AppCompatActivity() {
     }
 
     private fun startProjection(){
-        try{
-            mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            val intent = mediaProjectionManager.createScreenCaptureIntent()
-            val intent2 = Intent(this,ScreenRecordService::class.java)
 
-
-            if (mediaProjectionManager != null) {
-                if(!isStarted){
-                    startForegroundService(intent2.apply {
-                        putExtra("resultCode",Activity.RESULT_OK)
-                        putExtra("data",intent)
-                    })
-
-                    isStarted = true
-                }else{
-                    startForegroundService(intent2)
-                    isStarted = false
-                }
-            }
-
-
-        }catch(e: Exception){
-            Log.e("Error","startProjection",e)
-        }
+        recorder.record()
+        isStarted = true
     }
 
+
+
     private fun stopProjection(){
-        try{
-            /*mediaRecorder.stop()
-            mediaRecorder.reset()
-            virtualDisplay.release()
-            mediaProjection.stop()
-            */
-
-            isStarted = false
-
-            Log.v("Ended","Ended Projection")
-        }catch(e: Exception){
-            Log.e("Error","stopProjection",e)
-        }
+       recorder.stopRecording()
+        isStarted = false
     }
 
     private fun initRecorder(){
