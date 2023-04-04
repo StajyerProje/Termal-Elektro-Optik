@@ -1,21 +1,9 @@
 package tr.com.altay.termalelektrooptik
 
 import android.Manifest
-import android.Manifest.permission.READ_EXTERNAL_STORAGE
-import android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-import android.app.Activity
-import android.app.Instrumentation.ActivityResult
 import android.content.ContentValues
-import android.content.Context
-import android.content.ContextWrapper
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
-import android.media.MediaRecorder
-import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.*
 import android.provider.MediaStore
@@ -28,21 +16,17 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
 import dev.bmcreations.scrcast.ScrCast
 import tr.com.altay.termalelektrooptik.databinding.ActivityMainBinding
-import tr.com.altay.termalelektrooptik.databinding.ContentMainBinding
-import tr.com.altay.termalelektrooptik.databinding.FragmentFirstBinding
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import dev.bmcreations.scrcast.config.NotificationConfig
-
+import dev.bmcreations.scrcast.config.Options
 import dev.bmcreations.scrcast.config.StorageConfig
-
 import dev.bmcreations.scrcast.config.VideoConfig
 
 
@@ -50,48 +34,33 @@ import dev.bmcreations.scrcast.config.VideoConfig
 
 class mainActivity : AppCompatActivity() {
 
-    //private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var binding: ActivityMainBinding
     private lateinit var permissionLauncher: ActivityResultLauncher<Array<String>>
-    private lateinit var resultLauncher: ActivityResultLauncher<Intent>
-
-    private lateinit var mediaProjectionManager: MediaProjectionManager
-    private lateinit var mediaProjection: MediaProjection
-    private lateinit var virtualDisplay: VirtualDisplay
     private lateinit var displayMetrics: DisplayMetrics
-    private lateinit var mediaRecorder: MediaRecorder
-
     private lateinit var recorder: ScrCast
+
+    private var isStorage1Permission = false
     private var isStoragePermissionGranted = false
     private var isCameraPermissionGranted = false
     private var isAudioPermissionGranted = false
-    private var isRecordPermissionGranted = false
+
 
     private var isStarted = false
-
+    private lateinit var videoFileName: String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         super.onCreate(savedInstanceState)
 
-
-        this.recorder = ScrCast.use(this)
-
-        recorder.apply {
-            // configure options via DSL
-            options {
-                video {
-                    maxLengthSecs = 360
-                }
-                storage {
-                    directoryName = "${externalCacheDir?.absolutePath}/${getFileName()}.3gp"
-                }
-
-                moveTaskToBack = false
-                startDelayMs = 5_000
+        this.recorder = ScrCast.use(this).apply {
+            options{
+                video { maxLengthSecs=360 }
+                storage { directoryName="altay" }
+                moveTaskToBack=false
+                stopOnScreenOff=true
+                startDelayMs=1_000
             }
         }
-
 
 
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -99,12 +68,12 @@ class mainActivity : AppCompatActivity() {
 
         permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){
             permissions ->
+            isStorage1Permission = permissions[Manifest.permission.READ_EXTERNAL_STORAGE] ?:isStorage1Permission
             isStoragePermissionGranted = permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] ?:isStoragePermissionGranted
             isAudioPermissionGranted = permissions[Manifest.permission.RECORD_AUDIO] ?:isAudioPermissionGranted
             isCameraPermissionGranted = permissions[Manifest.permission.CAMERA] ?:isCameraPermissionGranted
         }
 
-        requestPermission()
 
         val videoFrame = binding.include.videoView
 
@@ -113,6 +82,8 @@ class mainActivity : AppCompatActivity() {
         videoFrame.focusable
         videoFrame.start()
 
+        requestPermission()
+
         binding.photoButton.setOnClickListener {
             if(isStoragePermissionGranted)
                 getImage(videoFrame) {bitmap: Bitmap? -> saveImage(bitmap)}
@@ -120,9 +91,7 @@ class mainActivity : AppCompatActivity() {
                 requestPermission()
         }
 
-        /**
-         * Bilinen sikintilar: Android api 29 sonrasi exception atiyor
-         */
+
         binding.videoButton.setOnClickListener {
             requestPermission()
 
@@ -131,49 +100,12 @@ class mainActivity : AppCompatActivity() {
                     true -> stopProjection()
                     false -> startProjection()
                 }
-               // startProjection()
             }else{
                 Log.v("Error","setOnClickListener_SDK_INT < S")
                 requestPermission()
             }
         }
 
-        resultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()){ result ->
-            if(result.resultCode == RESULT_OK){
-                try{
-                    if(result.data != null){
-                        mediaProjection = mediaProjectionManager.getMediaProjection(result.resultCode,
-                            result.data!!) as MediaProjection
-                    }else{
-                        throw Exception()
-                    }
-
-                    initRecorder()
-
-                    virtualDisplay = mediaProjection.createVirtualDisplay(
-                        "Display",
-                        displayMetrics.widthPixels,
-                        displayMetrics.heightPixels,
-                        displayMetrics.densityDpi,
-                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                        mediaRecorder.surface,
-                        null,
-                        null
-                    )
-
-                    mediaRecorder.start()
-                }catch(e: Exception){
-                    Log.e("Error","resultLauncher",e)
-                }
-            }
-        }
-
-        //requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
-
-        //setSupportActionBar(binding.toolbar)
-        //val navController = findNavController(R.id.nav_host_fragment_content_main)
-        //appBarConfiguration = AppBarConfiguration(navController.graph)
-        //setupActionBarWithNavController(navController, appBarConfiguration)
     }
 
 
@@ -251,49 +183,21 @@ class mainActivity : AppCompatActivity() {
     }
 
     private fun startProjection(){
-
         recorder.record()
         isStarted = true
     }
 
-
-
     private fun stopProjection(){
-       recorder.stopRecording()
+        recorder.stopRecording()
         isStarted = false
+        Log.e("stopProjection","stoppedProjection")
     }
 
-    private fun initRecorder(){
-        try{
-            val fileDir: String
-
-            displayMetrics = binding.include.videoView.resources.displayMetrics
-
-            if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S){
-                fileDir = "${externalCacheDir?.absolutePath}/${getFileName()}.3gp"
-                mediaRecorder = MediaRecorder(this@mainActivity)
-            }else{
-                fileDir = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)}/${getFileName()}.3gp"
-                mediaRecorder = MediaRecorder()
-            }
-
-            mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            mediaRecorder.setAudioSource(MediaRecorder.AudioSource.DEFAULT)
-            mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-
-            mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.DEFAULT)
-            mediaRecorder.setOutputFile(fileDir)
-            mediaRecorder.setVideoFrameRate(30)
-            mediaRecorder.setVideoSize(displayMetrics.widthPixels,displayMetrics.heightPixels)
-
-            mediaRecorder.prepare()
-        }catch(e: Exception){
-            Log.e("Error","initRecorder",e)
-        }
-    }
 
     private fun requestPermission(){
+        isStorage1Permission = (ContextCompat.checkSelfPermission(this@mainActivity,
+            Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED)
+
         isStoragePermissionGranted = (ContextCompat.checkSelfPermission(this@mainActivity,
             Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED)
 
@@ -305,9 +209,14 @@ class mainActivity : AppCompatActivity() {
 
         val permissionRequest: MutableList<String> = ArrayList()
 
+        if(!isStorage1Permission){
+            permissionRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            Log.e("Not Granted","Storage_Read")
+        }
+
         if(!isStoragePermissionGranted){
             permissionRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            Log.e("Not Granted","Storage")
+            Log.e("Not Granted","Storage_Write")
         }
 
         if(!isAudioPermissionGranted){
@@ -325,26 +234,4 @@ class mainActivity : AppCompatActivity() {
             permissionLauncher.launch(permissionRequest.toTypedArray())
     }
 
-    /*
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        menuInflater.inflate(R.menu.menu_main, menu)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        return when (item.itemId) {
-            R.id.action_settings -> true
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
-
-    override fun onSupportNavigateUp(): Boolean {
-        val navController = findNavController(R.id.nav_host_fragment_content_main)
-        return navController.navigateUp(appBarConfiguration)
-                || super.onSupportNavigateUp()
-    }*/
 }
